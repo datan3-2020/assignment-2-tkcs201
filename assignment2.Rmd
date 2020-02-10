@@ -1,7 +1,7 @@
 ---
 title: "Data analysis assignment 2"
-author: "[add your name here]"
-date: "[add date here]"
+author: "Thea Smith"
+date: "08 Feb 2020"
 output: github_document
 ---
 
@@ -24,9 +24,9 @@ We will work with three different tables: household roster from wave 8 (*h_egoal
 ```{r}
 library(tidyverse)
 # You need to complete the paths to these files on your computer.
-Egoalt8 <- read_tsv("...h_egoalt.tab")
-Stable <- read_tsv("...xwavedat.tab")
-Hh8 <- read_tsv("...h_hhresp.tab")
+Egoalt8 <- read_tsv("/Users/TheaSmith/Desktop/Data Analysis III/assignment-2-tkcs201/UKDA-6614-tab/tab/ukhls_w8/h_egoalt.tab")
+Stable <- read_tsv("/Users/TheaSmith/Desktop/Data Analysis III/assignment-2-tkcs201/UKDA-6614-tab/tab/ukhls_wx/xwavedat.tab")
+Hh8 <- read_tsv("/Users/TheaSmith/Desktop/Data Analysis III/assignment-2-tkcs201/UKDA-6614-tab/tab/ukhls_w8/h_hhresp.tab")
 ```
 
 ## Filter household roster data (10 points)
@@ -37,8 +37,8 @@ First we want to select only pairs of individuals who are husbands and wives or 
 
 ```{r}
 Partners8 <- Egoalt8 %>%
-        filter(...) %>%
-        select(...)
+        filter(h_relationship_dv == 1 | h_relationship_dv== 2) %>%
+        select("pidp", "apidp", "h_hidp", "h_relationship_dv", "h_sex", "h_asex")
 ```
 
 Each couple now appears in the data twice: 1) with one partner as ego and the other as alter, 2) the other way round. Now we will only focus on heterosexual couples, and keep one observation per couple with women as egos and men as their alters.
@@ -46,9 +46,9 @@ Each couple now appears in the data twice: 1) with one partner as ego and the ot
 ```{r}
 Hetero8 <- Partners8 %>%
         # filter out same-sex couples
-        filter(...) %>%
+        filter(h_sex != h_asex) %>%
         # keep only one observation per couple with women as egos
-        filter(...)
+        filter(h_sex == 2 & h_asex == 1)
 ```
 
 ## Recode data on ethnicity (10 points)
@@ -57,7 +57,7 @@ In this assignment we will explore ethnic endogamy, i.e. marriages and partnersh
 
 ```{r}
 Stable2 <- Stable %>%
-        select(...)
+        select(pidp, racel_dv)
 ```
 
 Let's code missing values on ethnicity (-9) as NA.
@@ -71,7 +71,10 @@ Now let us recode the variable on ethnicity into a new binary variable with the 
 
 ```{r}
 Stable2 <- Stable2 %>%
-        mutate(race = ...)
+        mutate(race = case_when(
+                between(racel_dv,1,4)~"White",
+                racel_dv > 4 ~ "non-White"
+        ))
 ```
 
 ## Join data (30 points)
@@ -80,7 +83,7 @@ Now we want to join data from the household roster (*Hetero8*) and the data tabl
 
 ```{r}
 JoinedEthn <- Hetero8 %>%
-        ...
+        inner_join(Stable2, by = "pidp")
 ```
 
 Let us rename the variables for ethnicity to clearly indicate that they refer to egos.
@@ -95,7 +98,7 @@ Now let us merge in the data on alter's ethnicity. Note that in this case the ke
 
 ```{r}
 JoinedEthn <- JoinedEthn %>%
-        ...
+         left_join(Stable2, by = c("apidp" = "pidp"))
 ```
 
 Renaming the variables for alters.
@@ -113,8 +116,9 @@ Let us start by looking at the joint distribution of race (White vs. non-White) 
 ```{r}
 TableRace <- JoinedEthn %>%
         # filter out observations with missing data
-        filter(...) %>%
-        count(...)
+        filter(!is.na(egoRace)) %>%
+        filter(!is.na(alterRace)) %>% 
+        count(egoRace, alterRace)
 TableRace
 ```
 
@@ -126,19 +130,48 @@ Of course, you can simply calculate these numbers manually. However, the code wi
 ```{r}
 TableRace %>%
         # group by ego's race to calculate sums
-        group_by(...) %>%
+        group_by(egoRace) %>% summarise(totalbyrace = sum(n)) %>% inner_join(TableRace, by = "egoRace") %>%
         # create a new variable with the total number of women by race
-        mutate(...) %>%
+        mutate(WomRace = sum(n)) %>%
         # create a new variable with the required probabilities 
-        mutate(...)
+        mutate(probability =(n/sum(WomRace)))
 ```
 
 ## Join with household data and calculate mean and median number of children by ethnic group (30 points)
 
 1) Join the individual-level file with the household-level data from wave 8 (specifically, we want the variable for the number of children in the household).
+```{r}
+kids <- Hh8 %>%
+        select(h_hidp,h_nkids_dv)
+
+KidsIndivHouse<- JoinedEthn %>% 
+        inner_join(kids, by ="h_hidp")
+```
 2) Select only couples that are ethnically endogamous (i.e. partners come from the same ethnic group) for the following groups: White British, Indian, and Pakistani.
+```{r}
+KidsIndivHouse <- KidsIndivHouse %>% filter(egoRacel_dv == 1 | egoRacel_dv == 9 | egoRacel_dv == 10)
+```
 3) Produce a table showing the mean and median number of children in these households by ethnic group (make sure the table has meaningful labels for ethnic groups, not just numerical codes).
+```{r}
+TableKidsIndivHouse <- KidsIndivHouse %>%
+        group_by(egoRacel_dv) %>% 
+        filter(!is.na(h_nkids_dv)) %>% 
+        summarise(
+                ChildrenMean= mean(h_nkids_dv),
+                ChildrenMedian = median(h_nkids_dv)
+        ) %>% 
+        rename("Ethnicity" = egoRacel_dv) %>% 
+        rename("Children Mean" = ChildrenMean) %>% 
+        rename("Children Median" = ChildrenMedian) %>% 
+        mutate(Ethnicity = Ethnicity %>% 
+                       recode(`1` = "White British",
+                              `9` = "Indian",
+                              `10` = "Pakistani"))
+
+TableKidsIndivHouse
+```
 4) Write a short interpretation of your results. What could affect your findings?
 
-```{r}
-...
+From these results we can see that White British couples on average considerably have the fewest children with a mean of 0.58 and the median of 0 shows that the majority of White British couples who partook in the survey did not have any children. Indian couples on average had 0.98 or 1 child with the median being 1. Pakistani has notably the highest average of children per couple with 1.79 children with a median of 2. 
+
+These results could be influenced by various factors, namly traditions and cultures that come with ethnicity, such as religion. However, notably, this data set excludes various parents, namely same sex parents, parents where the child has left home, single parents or parents of two different ethnicities, thus making these results inaccurate. Furthermore there are missing values and this is only a sample of the UK, not the UK as a whole therefore a very different picture could be painted if this data set included more/all parents.  
